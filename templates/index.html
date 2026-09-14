@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Youbi (temporary)</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --user: #2b6cff;
+    --youbi: #1e222b;
+    --text: #e8ecf1;
+    --muted: #8b94a3;
+    --border: #242830;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior: none;
+  }
+  #app {
+    display: flex; flex-direction: column;
+    height: 100dvh;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+  header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel);
+  }
+  header .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #2ecc71;
+    box-shadow: 0 0 8px #2ecc71;
+  }
+  header .title { font-weight: 600; font-size: 16px; }
+  header .sub { color: var(--muted); font-size: 12px; margin-left: auto; }
+  #log {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex; flex-direction: column; gap: 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .msg {
+    max-width: 85%;
+    padding: 10px 14px;
+    border-radius: 16px;
+    line-height: 1.45;
+    font-size: 15px;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+  }
+  .msg.user { align-self: flex-end; background: var(--user); color: white; border-bottom-right-radius: 4px; }
+  .msg.youbi { align-self: flex-start; background: var(--youbi); border-bottom-left-radius: 4px; }
+  .msg .meta {
+    display: block;
+    margin-top: 6px;
+    font-size: 11px;
+    opacity: 0.65;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  .msg .sources {
+    display: block;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .msg.typing::after {
+    content: "▍";
+    animation: blink 1s steps(2) infinite;
+    margin-left: 2px;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  form {
+    display: flex;
+    padding: 10px;
+    gap: 8px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  textarea {
+    flex: 1;
+    resize: none;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 15px;
+    max-height: 120px;
+    min-height: 44px;
+    outline: none;
+  }
+  textarea:focus { border-color: var(--user); }
+  button {
+    background: var(--user);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    padding: 0 18px;
+    font: inherit;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #hint {
+    text-align: center;
+    color: var(--muted);
+    font-size: 13px;
+    padding: 24px 16px;
+    line-height: 1.5;
+  }
+  #hint code {
+    background: var(--panel);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <span class="dot"></span>
+    <span class="title">Youbi</span>
+    <span class="sub" id="engine-sub">temporary engine</span>
+  </header>
+
+  <div id="log">
+    <div id="hint">
+      Temporary Youbi is running. It's an intent + retrieval + n-gram engine — not an LLM.<br><br>
+      Try: <code>hello</code> · <code>what can you do</code> · <code>muraho</code>
+    </div>
+  </div>
+
+  <form id="chat-form">
+    <textarea id="input" placeholder="Ask Youbi…" rows="1" autocomplete="off"></textarea>
+    <button id="send" type="submit">Send</button>
+  </form>
+</div>
+
+<script>
+(function () {
+  const log = document.getElementById("log");
+  const form = document.getElementById("chat-form");
+  const input = document.getElementById("input");
+  const send = document.getElementById("send");
+  const hint = document.getElementById("hint");
+  const engineSub = document.getElementById("engine-sub");
+
+  // Stable session id for this browser tab
+  const sessionId = "web-" + Math.random().toString(36).slice(2, 10);
+
+  // Auto-grow the textarea
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 120) + "px";
+  });
+
+  // Check status on load
+  fetch("/api/status")
+    .then(r => r.json())
+    .then(s => {
+      engineSub.textContent = s.engine + " · " + s.type;
+    })
+    .catch(() => { engineSub.textContent = "offline"; });
+
+  function addMessage(role, text, meta) {
+    if (hint && hint.parentNode) hint.remove();
+    const el = document.createElement("div");
+    el.className = "msg " + role;
+    el.textContent = text;
+    if (meta) {
+      const m = document.createElement("span");
+      m.className = "meta";
+      m.textContent = meta;
+      el.appendChild(m);
+    }
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+    return el;
+  }
+
+  async function sendPrompt(prompt) {
+    addMessage("user", prompt);
+    const pending = addMessage("youbi", "");
+    pending.classList.add("typing");
+    send.disabled = true;
+
+    try {
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          prompt: prompt,
+          session_id: sessionId,
+          temperature: 0.7,
+          max_tokens: 120
+        })
+      });
+      const data = await res.json();
+
+      pending.classList.remove("typing");
+      pending.textContent = data.text || "(empty)";
+
+      // Metadata line
+      const meta = document.createElement("span");
+      meta.className = "meta";
+      meta.textContent =
+        "intent: " + data.intent +
+        " · conf: " + data.confidence +
+        " · " + data.engine;
+      pending.appendChild(meta);
+
+      // Sources if any
+      if (data.retrieved_sources && data.retrieved_sources.length) {
+        const src = document.createElement("span");
+        src.className = "sources";
+        src.textContent = "sources: " +
+          data.retrieved_sources.map(s => s.source).join(", ");
+        pending.appendChild(src);
+      }
+      log.scrollTop = log.scrollHeight;
+    } catch (err) {
+      pending.classList.remove("typing");
+      pending.textContent = "network error: " + err.message;
+    } finally {
+      send.disabled = false;
+      input.focus();
+    }
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    input.style.height = "auto";
+    sendPrompt(text);
+  });
+
+  // Enter = send, Shift+Enter = newline (desktop convenience)
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && window.innerWidth > 700) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  input.focus();
+})();
+</script>
+</body>
+</html>
