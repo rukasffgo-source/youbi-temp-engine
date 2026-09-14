@@ -5,7 +5,7 @@ The API contract is stable: /api/generate, /api/chat, /api/ingest,
 nothing else changes.
 """
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from engine import TemporaryYoubiAI
 
 DATA_DIR = os.environ.get("YOUBI_DATA_DIR", "data")
@@ -28,7 +28,9 @@ def generate():
     prompt = body.get("prompt", "")
     return jsonify(engine.generate(prompt, **_params(body)))
 
-
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
 @app.route("/api/chat", methods=["POST"])
 def chat():
     # Alias for /api/generate; kept because frontends often use /chat.
